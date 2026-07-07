@@ -31,3 +31,8 @@ func WindowSpec(args Args) Expression          { return newNode(KindWindowSpec, 
 func Filter(args Args) Expression              { return newNode(KindFilter, args) }
 func LimitOptions(args Args) Expression        { return newNode(KindLimitOptions, args) }
 func Fetch(args Args) Expression               { return newNode(KindFetch, args) }
+func Schema(args Args) Expression              { return newNode(KindSchema, args) }
+func Lateral(args Args) Expression             { return newNode(KindLateral, args) }
+func Pivot(args Args) Expression               { return newNode(KindPivot, args) }
+func Values(args Args) Expression              { return newNode(KindValues, args) }
+func ColumnDef(args Args) Expression           { return newNode(KindColumnDef, args) }

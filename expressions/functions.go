@@ -39,6 +39,10 @@ var FunctionByName = map[string]func([]Expression) Expression{
 	"LOG":                   genericFunction(KindLog),
 	"POW":                   genericFunction(KindPow),
 	"POWER":                 genericFunction(KindPow),
+	"SUBSTR":                genericFunction(KindSubstring),
+	"CEILING":               genericFunction(KindCeil),
+	"GROUP_CONCAT":          genericFunction(KindGroupConcat),
+	"LISTAGG":               genericFunction(KindGroupConcat),
 	"STDDEV":                genericFunction(KindStddev),
 	"STDEV":                 genericFunction(KindStddev),
 	"STDDEV_POP":            genericFunction(KindStddevPop),
@@ -140,3 +144,13 @@ func Count(args Args) Expression          { return newNode(KindCount, args) }
 func Coalesce(args Args) Expression       { return newNode(KindCoalesce, args) }
 func Greatest(args Args) Expression       { return newNode(KindGreatest, args) }
 func Least(args Args) Expression          { return newNode(KindLeast, args) }
+func Cast(args Args) Expression           { return newNode(KindCast, args) }
+func TryCast(args Args) Expression        { return newNode(KindTryCast, args) }
+func CastToStrType(args Args) Expression  { return newNode(KindCastToStrType, args) }
+func Extract(args Args) Expression        { return newNode(KindExtract, args) }
+func StrPosition(args Args) Expression    { return newNode(KindStrPosition, args) }
+func Substring(args Args) Expression      { return newNode(KindSubstring, args) }
+func Trim(args Args) Expression           { return newNode(KindTrim, args) }
+func Ceil(args Args) Expression           { return newNode(KindCeil, args) }
+func Floor(args Args) Expression          { return newNode(KindFloor, args) }
+func GroupConcat(args Args) Expression    { return newNode(KindGroupConcat, args) }

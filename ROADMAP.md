@@ -19,10 +19,13 @@ Slices (ordered; each must land `go test ./...` green before the next):
      OFFSET/FETCH/QUALIFY/DISTINCT/WINDOW/FILTER, predicates (IN/EXISTS/ANY/ALL/
      BETWEEN/IS DISTINCT FROM), CASE/IF/Paren/Tuple, function-call dispatch,
      FUNCTION_BY_NAME, Anonymous fallback, and a curated common-function set.
-   - 1b: CAST/`::`/DataType coordination, specialized FUNCTION_PARSERS, bracket
-     literals/indexing, INTERVAL, LATERAL/UNNEST/VALUES/PIVOT, window extras,
-     LOCK/FOR and remaining clauses, SELECT TOP, parse_into, DML/DDL/statements,
-     and the long function tail.
+   - 1b: DONE when green. Landed DML/DDL statement roots, minimal CREATE/Command,
+     CAST/`::`/DataType coordination, specialized FUNCTION_PARSERS, bracket
+     literals/indexing, LATERAL/UNNEST/VALUES/PIVOT, and the M1 root probes.
+   - 1c: defer LOCK/FOR, window extras (WITHIN GROUP / IGNORE-RESPECT NULLS /
+     frame EXCLUDE), INTERVAL and nested/UDT type parsing, SELECT TOP, parse_into,
+     JSON column operators, simplified top-level PIVOT, CREATE properties/indexes/
+     clone/sequence details, constraints, and the remaining long function tail.
 
 2. GENERATOR CORE — generator.py: Generator + generate(); un-skip .sql()-dependent tests;
    enables tests/fixtures/identity.sql round-trips (test_transpile subset). Required by
@@ -46,7 +49,7 @@ Cross-cutting deferred from foundation (tracked as TODOs in code):
 - Expr→SQL (generator) — blocks all .sql() asserts.
 - Reflection registries EXPR_CLASSES / FUNCTION_BY_NAME (expressions/__init__.py:47-51) →
   explicit Go registration tables (slice 1).
-- DataType/DType hierarchy (slice 3).
+- Full schema/type annotation hierarchy beyond the parser's minimal DataType/DType nodes (slice 3).
 - highlight_sql-rich parse errors already ported in foundation; parse_into(into=) deferred.
 
 Known divergences from the r1–r3 adversarial review (differential-tested vs Python 30.12.0;
@@ -68,9 +71,9 @@ non-blocking for the foundation, must be resolved by the noted slice):
   shows it matters.
 - `IsWrapper` uses the Go AST's `truthy` helper rather than Python's `v is None` check because
   `newNode` does not store nil args. The wrapper semantics are equivalent for stored args.
-- CAST / `::` / DataType remain deferred to parser-core 1b and schema/DataType slice 3. A
-  throwaway mini-DataType would create reconciliation debt; keep `test_cast` skipped until the
-  real type model lands.
+- Full DataType semantics remain deferred to schema/DataType slice 3. Slice 1b only adds the
+  parser-visible DType enum and DataType nodes needed for CAST/`::` and column definitions;
+  generator `.sql()` and rich `.type` assertions stay deferred.
 
 Resolved in the foundation review pass (were latent, now fixed + regression-tested):
 - Replace()/Pop() silently no-op'd on single-value (non-list) args — the core tree-rewrite
@@ -78,6 +81,14 @@ Resolved in the foundation review pass (were latent, now fixed + regression-test
   index<0 through Set, the index-nil path). Tests: TestReplaceSingleValueArg, TestPopSingleValueArg.
 - _parse_alias built an invalid exp.Tuple{this:...} (Tuple has no `this` arg) → ArgError.
   Added exp.Aliases (this+expressions) and use it. Test: TestParseAliases.
+
+Slice-1b review disposition:
+- Reviewer flagged parseValue ignoring its `values` param, claiming upstream has an
+  `if not values and self._curr: return None` guard. VERIFIED against the pinned source:
+  v30.12.0 `_parse_value` (parser.py:3783) declares `values=True` but never references it —
+  the Go port is faithful; that guard exists in a different sqlglot version. No change.
+- Genuine minor gap (deferred to dialect slice 5): parseValue does not yet honor
+  SUPPORTS_VALUES_DEFAULT (`VALUES (DEFAULT)` → exp.var), a dialect flag; base is unaffected.
 
 Resolved in the slice-1a review pass:
 - parseLimit dropped upstream's `isinstance(expression, exp.Mod)` retreat (parser.py:5576-5579),

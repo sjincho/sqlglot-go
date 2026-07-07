@@ -7,7 +7,7 @@ import (
 )
 
 func TestRegisteredFunctions(t *testing.T) {
-	// Remaining test_functions entries are deferred to slice 1b (need FUNCTION_PARSERS/DataType/bracket literals).
+	// Remaining test_functions entries are deferred to slice 1c (long-tail functions and generator-dependent assertions).
 	cases := []struct {
 		sql  string
 		kind exp.Kind
@@ -46,6 +46,21 @@ func TestRegisteredFunctions(t *testing.T) {
 		{"HLL(a)", exp.KindHll},
 		{"LOG(b, n)", exp.KindLog},
 		{"QUANTILE(a, 0.90)", exp.KindQuantile},
+		{"CAST(a AS INT)", exp.KindCast},
+		{"TRY_CAST(a AS INT)", exp.KindTryCast},
+		{"SAFE_CAST(a AS INT)", exp.KindTryCast},
+		{"CAST(a, 'INT')", exp.KindCastToStrType},
+		{"EXTRACT(DAY FROM a)", exp.KindExtract},
+		{"POSITION(a IN b)", exp.KindStrPosition},
+		{"SUBSTRING(a FROM 1 FOR 2)", exp.KindSubstring},
+		{"SUBSTR(a, 1, 2)", exp.KindSubstring},
+		{"TRIM(a)", exp.KindTrim},
+		{"CEIL(a)", exp.KindCeil},
+		{"CEILING(a)", exp.KindCeil},
+		{"FLOOR(a)", exp.KindFloor},
+		{"STRING_AGG(a, ',')", exp.KindGroupConcat},
+		{"GROUP_CONCAT(a, ',')", exp.KindGroupConcat},
+		{"LISTAGG(a, ',')", exp.KindGroupConcat},
 	}
 	for _, tc := range cases {
 		expression := parseOne(t, tc.sql)

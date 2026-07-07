@@ -84,3 +84,11 @@ func TestSetOperationByNameOmittedWhenAbsent(t *testing.T) {
 		t.Fatalf("ToS should omit by_name when absent:\n%s", u.ToS())
 	}
 }
+
+func TestPivotMissingAggFunc(t *testing.T) {
+	if _, err := parseOneErr("SELECT * FROM t PIVOT(FOR x IN (1, 2))"); err == nil {
+		t.Fatalf("pivot missing aggregation should raise a parse error")
+	} else if !strings.Contains(err.Error(), "Expecting an aggregation function in PIVOT") {
+		t.Fatalf("unexpected pivot error: %v", err)
+	}
+}

@@ -15,6 +15,7 @@ type Parser struct {
 	maxErrors           int
 	maxNodes            int
 	dialect             *dialects.Dialect
+	strictCast          bool
 	sql                 string
 	errors              []*sqlerrors.ParseError
 
@@ -45,6 +46,7 @@ func NewWithErrorLevel(d *dialects.Dialect, level sqlerrors.ErrorLevel) *Parser 
 		maxErrors:           3,
 		maxNodes:            -1,
 		dialect:             d,
+		strictCast:          true,
 		curr:                tokens.SentinelNone,
 		next:                tokens.SentinelNone,
 		prev:                tokens.SentinelNone,
@@ -356,6 +358,15 @@ func (p *Parser) parseStatement() exp.Expression {
 	if !p.curr.IsValid() {
 		return nil
 	}
+	if parse := statementParsers[p.curr.TokenType]; parse != nil {
+		p.advance()
+		comments := p.prevComments
+		stmt := parse(p)
+		if stmt != nil {
+			stmt.AddComments(comments, true)
+		}
+		return stmt
+	}
 	expression := p.parseExpression()
 	if expression != nil {
 		expression = p.parseSetOperations(expression)
@@ -514,8 +525,7 @@ func (p *Parser) parseSelect(opts ...bool) exp.Expression {
 		p.matchRParen(this)
 		return p.parseSubquery(this, parseSubqueryAlias)
 	} else if p.match(tokens.VALUES, false) {
-		// TODO(slice 1b): derived VALUES tables.
-		this = nil
+		this = p.parseDerivedTableValues()
 	} else {
 		this = nil
 	}
@@ -576,8 +586,22 @@ func (p *Parser) parseFrom(joins bool, skipFromToken bool, consumePipe bool) exp
 func (p *Parser) parseTable(schema bool, joins bool, aliasTokens map[tokens.TokenType]bool, parseBracket bool, isDBReference bool, parsePartition bool, consumePipe bool) exp.Expression {
 	// Divergence from upstream: skip _parse_table's fast path in this slice so
 	// subquery detection always runs before table-part parsing.
+	if l := p.parseLateral(); l != nil {
+		return l
+	}
+	if u := p.parseUnnest(true); u != nil {
+		return u
+	}
+	if v := p.parseDerivedTableValues(); v != nil {
+		return v
+	}
 	if !schema && !isDBReference {
 		if subquery := p.parseSelect(false, true, true, true); subquery != nil {
+			if subquery.Arg("pivots") == nil {
+				if pivots := p.parsePivots(); pivots != nil {
+					subquery.Set("pivots", pivots)
+				}
+			}
 			if joins {
 				for {
 					join := p.parseJoin(false, false, aliasTokens)
@@ -594,8 +618,16 @@ func (p *Parser) parseTable(schema bool, joins bool, aliasTokens map[tokens.Toke
 	if this == nil {
 		return nil
 	}
+	if schema {
+		return p.parseSchema(this)
+	}
 	if alias := p.parseTableAlias(aliasTokens); alias != nil {
 		this.Set("alias", alias)
+	}
+	if this.Arg("pivots") == nil {
+		if pivots := p.parsePivots(); pivots != nil {
+			this.Set("pivots", pivots)
+		}
 	}
 	if joins {
 		for {
@@ -651,6 +683,9 @@ func (p *Parser) parseTablePart(schema bool) exp.Expression {
 
 func (p *Parser) parseTableAlias(aliasTokensArg map[tokens.TokenType]bool) exp.Expression {
 	if p.canParseLimitOrOffset() {
+		return nil
+	}
+	if p.curr.TokenType == tokens.PIVOT || p.curr.TokenType == tokens.UNPIVOT {
 		return nil
 	}
 	anyToken := p.match(tokens.ALIAS)
@@ -718,7 +753,11 @@ func (p *Parser) parseJoin(skipJoinToken bool, parseBracket bool, aliasTokensArg
 		p.retreat(index)
 		method, side, kind = nil, nil, nil
 	}
-	if !skipJoinToken && !join {
+	// CROSS/OUTER APPLY (parser.py:4491-4494): non-consuming peeks so parseTable's
+	// parseLateral consumes the pair and builds the Lateral (the join's `this`).
+	outerApply := p.matchPair(tokens.OUTER, tokens.APPLY, false)
+	crossApply := p.matchPair(tokens.CROSS, tokens.APPLY, false)
+	if !skipJoinToken && !join && !outerApply && !crossApply {
 		return nil
 	}
 	kwargs := exp.Args{"this": p.parseTable(false, false, aliasTokensArg, parseBracket, false, false, false)}
@@ -1010,10 +1049,7 @@ func (p *Parser) parseAtom() exp.Expression {
 func (p *Parser) parseColumn() exp.Expression {
 	column := p.parseColumnPartsFast()
 	if column == nil {
-		this := p.parseColumnReference()
-		if this != nil {
-			column = p.parseColumnOps(this)
-		}
+		column = p.parseColumnOps(p.parseColumnReference())
 	}
 	return column
 }
@@ -1080,13 +1116,40 @@ func (p *Parser) parseColumnReference() exp.Expression {
 	return this
 }
 
+type columnOpFunc func(p *Parser, this, field exp.Expression) exp.Expression
+
+var columnOperators = map[tokens.TokenType]columnOpFunc{
+	tokens.DOT: nil,
+	tokens.DCOLON: func(p *Parser, this, to exp.Expression) exp.Expression {
+		return p.buildCast(p.strictCast, exp.Args{"this": this, "to": to})
+	},
+}
+
+var castColumnOperators = map[tokens.TokenType]bool{tokens.DCOLON: true}
+
 func (p *Parser) parseColumnOps(this exp.Expression) exp.Expression {
-	for p.curr.TokenType == tokens.DOT {
+	for bracketsTokens[p.curr.TokenType] {
+		this = p.parseBracket(this)
+	}
+	for p.curr.IsValid() {
+		opToken := p.curr.TokenType
+		op, ok := columnOperators[opToken]
+		if !ok {
+			break
+		}
 		p.advance()
-		// Upstream _parse_column_ops takes the plain-DOT (op is None) branch here,
-		// which uses _parse_field(any_token=True, anonymous_func=True) so a following
-		// "(" lets the field parse as a function call (e.g. x.y.FOO()).
-		field := p.parseField(true, nil, true)
+		var field exp.Expression
+		if castColumnOperators[opToken] {
+			field = p.parseDcolon()
+			if field == nil {
+				p.raiseError("Expected type")
+			}
+		} else {
+			// Upstream _parse_column_ops takes the plain-DOT (op is None) branch here,
+			// which uses _parse_field(any_token=True, anonymous_func=True) so a following
+			// "(" lets the field parse as a function call (e.g. x.y.FOO()).
+			field = p.parseField(true, nil, true)
+		}
 
 		// Function calls can be qualified, e.g. x.y.FOO(). Convert the accumulated
 		// column into a series of Dots leading to the call (parser.py:6793-6799).
@@ -1094,7 +1157,9 @@ func (p *Parser) parseColumnOps(this exp.Expression) exp.Expression {
 			this = exp.ColumnsToDot(this)
 		}
 
-		if this != nil && this.Kind() == exp.KindColumn && this.Arg("catalog") == nil {
+		if op != nil {
+			this = op(p, this, field)
+		} else if this != nil && this.Kind() == exp.KindColumn && this.Arg("catalog") == nil {
 			this = p.expression(exp.Column(exp.Args{"this": field, "table": this.This(), "db": this.Arg("table"), "catalog": this.Arg("db")}), nil, this.Comments())
 		} else if field != nil && field.Kind() == exp.KindWindow {
 			// Move the Dot into the window's function (parser.py:6813-6817).
@@ -1107,6 +1172,7 @@ func (p *Parser) parseColumnOps(this exp.Expression) exp.Expression {
 		if field != nil && len(field.Comments()) > 0 {
 			this.AddComments(field.PopComments(), false)
 		}
+		this = p.parseBracket(this)
 	}
 	return this
 }
@@ -1453,7 +1519,7 @@ func (p *Parser) parseSubquery(this exp.Expression, parseAlias bool) exp.Express
 }
 
 func (p *Parser) parseFunction(functions map[string]func([]exp.Expression) exp.Expression, anonymous bool, optionalParens bool, anyToken bool) exp.Expression {
-	// TODO(slice 1b): parse ODBC {fn ...} wrapper syntax.
+	// TODO(slice 1c): parse ODBC {fn ...} wrapper syntax.
 	return p.parseFunctionCall(functions, anonymous, optionalParens, anyToken)
 }
 
@@ -1473,7 +1539,7 @@ func (p *Parser) parseFunctionCall(functions map[string]func([]exp.Expression) e
 		return p.parseWindow(parser(p), false)
 	}
 	if p.next.TokenType != tokens.L_PAREN {
-		// TODO(slice 1b): NO_PAREN_FUNCTIONS CURRENT_*.
+		// TODO(slice 1c): NO_PAREN_FUNCTIONS CURRENT_*.
 		return nil
 	}
 	if anyToken {
@@ -1732,14 +1798,14 @@ func (p *Parser) parseOrdered(parseMethod func() exp.Expression) exp.Expression 
 	if !explicitlyNullOrdered && ((!descSet || !descBool) && p.dialect.NullOrdering == "nulls_are_small" || (descSet && descBool) && p.dialect.NullOrdering != "nulls_are_small") && p.dialect.NullOrdering != "nulls_are_last" {
 		nullsFirst = true
 	}
-	// TODO(slice 1b): WITH FILL.
+	// TODO(slice 1c): WITH FILL.
 	return p.expression(exp.Ordered(exp.Args{"this": this, "desc": desc, "nulls_first": nullsFirst}), nil, nil)
 }
 
 func (p *Parser) parseLimit(this exp.Expression, top bool, skipLimitToken bool) exp.Expression {
 	if skipLimitToken || p.match(tokens.LIMIT) {
 		comments := p.prevComments
-		// TODO(slice 1b): SUPPORTS_LIMIT_ALL and SELECT TOP.
+		// TODO(slice 1c): SUPPORTS_LIMIT_ALL and SELECT TOP.
 		// Parsing LIMIT x% (i.e. x PERCENT) as a term leads to an error, since we try to
 		// build an exp.Mod expr. For that matter, we backtrack and instead consume the
 		// factor plus parse the percentage separately.
@@ -1846,7 +1912,7 @@ func (p *Parser) parseWindow(this exp.Expression, alias bool) exp.Expression {
 	if funcExpr != nil {
 		comments = funcExpr.Comments()
 	}
-	// TODO(slice 1b): WITHIN GROUP.
+	// TODO(slice 1c): WITHIN GROUP.
 	if p.matchPair(tokens.FILTER, tokens.L_PAREN, true) {
 		p.match(tokens.WHERE)
 		this = p.expression(exp.Filter(exp.Args{"this": this, "expression": p.parseWhere(true)}), nil, nil)
@@ -1888,7 +1954,7 @@ func (p *Parser) parseWindow(this exp.Expression, alias bool) exp.Expression {
 		if p.match(tokens.AND) {
 			end = p.parseWindowSpec()
 		}
-		// TODO(slice 1b): EXCLUDE.
+		// TODO(slice 1c): EXCLUDE.
 		spec = p.expression(exp.WindowSpec(exp.Args{"kind": kind, "start": start["value"], "start_side": start["side"], "end": end["value"], "end_side": end["side"]}), nil, nil)
 	}
 	p.matchRParen(this)
@@ -1896,7 +1962,7 @@ func (p *Parser) parseWindow(this exp.Expression, alias bool) exp.Expression {
 }
 
 func (p *Parser) parseRespectOrIgnoreNulls(this exp.Expression) exp.Expression {
-	// TODO(slice 1b): IGNORE/RESPECT NULLS.
+	// TODO(slice 1c): IGNORE/RESPECT NULLS.
 	return this
 }
 
@@ -1939,6 +2005,8 @@ var subqueryPredicates = map[tokens.TokenType]func(exp.Args) exp.Expression{
 
 var functionParsers = map[string]func(*Parser) exp.Expression{}
 
+var statementParsers map[tokens.TokenType]func(*Parser) exp.Expression
+
 var queryModifierParsers map[tokens.TokenType]func(*Parser) (string, any)
 
 func init() {
@@ -1948,6 +2016,28 @@ func init() {
 		},
 		"CASE": func(p *Parser) exp.Expression { return p.parseCase() },
 		"IF":   func(p *Parser) exp.Expression { return p.parseIf() },
+	}
+	statementParsers = map[tokens.TokenType]func(*Parser) exp.Expression{
+		tokens.INSERT:  (*Parser).parseInsert,
+		tokens.UPDATE:  (*Parser).parseUpdate,
+		tokens.DELETE:  (*Parser).parseDelete,
+		tokens.MERGE:   (*Parser).parseMerge,
+		tokens.CREATE:  (*Parser).parseCreate,
+		tokens.REPLACE: (*Parser).parseCreate,
+	}
+	functionParsers = map[string]func(*Parser) exp.Expression{
+		"CAST":        func(p *Parser) exp.Expression { return p.parseCast(p.strictCast, nil) },
+		"TRY_CAST":    func(p *Parser) exp.Expression { return p.parseCast(false, true) },
+		"SAFE_CAST":   func(p *Parser) exp.Expression { return p.parseCast(false, true) },
+		"CONVERT":     func(p *Parser) exp.Expression { return p.parseConvert(p.strictCast, nil) },
+		"TRY_CONVERT": func(p *Parser) exp.Expression { return p.parseConvert(false, true) },
+		"CEIL":        func(p *Parser) exp.Expression { return p.parseCeilFloor(exp.KindCeil) },
+		"FLOOR":       func(p *Parser) exp.Expression { return p.parseCeilFloor(exp.KindFloor) },
+		"EXTRACT":     func(p *Parser) exp.Expression { return p.parseExtract() },
+		"POSITION":    func(p *Parser) exp.Expression { return p.parsePosition() },
+		"SUBSTRING":   func(p *Parser) exp.Expression { return p.parseSubstring() },
+		"TRIM":        func(p *Parser) exp.Expression { return p.parseTrim() },
+		"STRING_AGG":  func(p *Parser) exp.Expression { return p.parseStringAgg() },
 	}
 	queryModifierParsers = map[tokens.TokenType]func(*Parser) (string, any){
 		tokens.WHERE:    func(p *Parser) (string, any) { return "where", p.parseWhere(false) },

@@ -1,0 +1,299 @@
+package parser
+
+import (
+	"strings"
+
+	exp "github.com/sjincho/sqlglot-go/expressions"
+	"github.com/sjincho/sqlglot-go/tokens"
+)
+
+func (p *Parser) parseInsert() exp.Expression {
+	keywordTok := p.prev
+	overwrite := p.match(tokens.OVERWRITE)
+	ignore := p.match(tokens.IGNORE)
+	var alternative any
+	if p.match(tokens.OR) {
+		if p.matchTexts(insertAlternatives) {
+			alternative = p.prev.Text
+		}
+	}
+	p.match(tokens.INTO)
+	comments := p.prevComments
+	p.match(tokens.TABLE)
+	isFunction := p.match(tokens.FUNCTION)
+	var this exp.Expression
+	if isFunction {
+		this = p.parseFunction(nil, false, true, false)
+	} else {
+		this = p.parseInsertTable()
+	}
+	returning := p.parseReturning()
+	byName := p.matchTextSeq("BY", "NAME")
+	exists := p.parseExists(false)
+	var where exp.Expression
+	if p.matchPair(tokens.REPLACE, tokens.WHERE, true) {
+		where = p.parseDisjunction()
+	}
+	default_ := p.matchTextSeq("DEFAULT", "VALUES")
+	// These firstExpression calls evaluate their alternatives eagerly (unlike a
+	// short-circuit `or`), which is safe here only because the alternatives sit at
+	// non-overlapping token positions: parseDerivedTableValues/parseReturning consume
+	// nothing when they return nil, and the second parseReturning is a no-op once the
+	// first grabbed the RETURNING clause. Contrast parseLateral, where eager evaluation
+	// would drop a trailing alias.
+	expression := firstExpression(p.parseDerivedTableValues(), p.parseDDLSelect())
+	conflict := p.parseOnConflict()
+	returning = firstExpression(returning, p.parseReturning())
+	return p.expression(exp.Insert(exp.Args{
+		"overwrite":   overwrite,
+		"ignore":      ignore,
+		"alternative": alternative,
+		"is_function": isFunction,
+		"this":        this,
+		"returning":   returning,
+		"by_name":     byName,
+		"exists":      exists,
+		"where":       where,
+		"default":     default_,
+		"expression":  expression,
+		"conflict":    conflict,
+	}), &keywordTok, comments)
+}
+
+func (p *Parser) parseInsertTable() exp.Expression {
+	this := p.parseTable(true, false, nil, false, false, true, false)
+	if this != nil && this.Kind() == exp.KindTable && p.match(tokens.ALIAS, false) {
+		this.Set("alias", p.parseTableAlias(nil))
+	}
+	return this
+}
+
+func (p *Parser) parseUpdate() exp.Expression {
+	kwargs := exp.Args{"this": p.parseTable(false, true, updateAliasTokens, false, false, false, false)}
+	for p.curr.IsValid() {
+		switch {
+		case p.match(tokens.SET):
+			kwargs["expressions"] = p.parseCsv(p.parseEquality)
+		case p.match(tokens.RETURNING, false):
+			kwargs["returning"] = p.parseReturning()
+		case p.match(tokens.FROM, false):
+			kwargs["from_"] = p.parseFrom(true, false, false)
+		case p.match(tokens.WHERE, false):
+			kwargs["where"] = p.parseWhere(false)
+		case p.match(tokens.ORDER_BY, false):
+			kwargs["order"] = p.parseOrder(nil, false)
+		case p.match(tokens.LIMIT, false):
+			kwargs["limit"] = p.parseLimit(nil, false, false)
+		default:
+			return p.expression(exp.Update(kwargs), nil, nil)
+		}
+	}
+	return p.expression(exp.Update(kwargs), nil, nil)
+}
+
+func (p *Parser) parseDelete() exp.Expression {
+	var tables []exp.Expression
+	tableNoJoin := func() exp.Expression { return p.parseTable(false, false, nil, false, false, false, false) }
+	tableWithJoins := func() exp.Expression { return p.parseTable(false, true, nil, false, false, false, false) }
+	if !p.match(tokens.FROM, false) {
+		if parsed := p.parseCsv(tableNoJoin); len(parsed) > 0 {
+			tables = parsed
+		}
+	}
+	returning := p.parseReturning()
+	var this exp.Expression
+	if p.match(tokens.FROM) {
+		this = p.parseTable(false, true, nil, false, false, false, false)
+	}
+	var using []exp.Expression
+	if p.match(tokens.USING) {
+		using = p.parseCsv(tableWithJoins)
+	}
+	where := p.parseWhere(false)
+	returning = firstExpression(returning, p.parseReturning())
+	order := p.parseOrder(nil, false)
+	limit := p.parseLimit(nil, false, false)
+	return p.expression(exp.Delete(exp.Args{
+		"tables":    tables,
+		"this":      this,
+		"using":     using,
+		"where":     where,
+		"returning": returning,
+		"order":     order,
+		"limit":     limit,
+	}), nil, nil)
+}
+
+func (p *Parser) parseReturning() exp.Expression {
+	if !p.match(tokens.RETURNING) {
+		return nil
+	}
+	args := exp.Args{"expressions": p.parseCsv(p.parseExpression)}
+	if p.match(tokens.INTO) {
+		args["into"] = p.parseTablePart(false)
+	}
+	return p.expression(exp.Returning(args), nil, nil)
+}
+
+func (p *Parser) parseOnConflict() exp.Expression {
+	conflict := p.matchTextSeq("ON", "CONFLICT")
+	duplicate := p.matchTextSeq("ON", "DUPLICATE", "KEY")
+	if !conflict && !duplicate {
+		return nil
+	}
+	var constraint exp.Expression
+	var conflictKeys []exp.Expression
+	if conflict {
+		if p.matchTextSeq("ON", "CONSTRAINT") {
+			constraint = p.parseIdVar(false, nil)
+		} else if p.match(tokens.L_PAREN) {
+			conflictKeys = p.parseCsv(func() exp.Expression { return p.parseOrdered(p.parseColumn) })
+			p.matchRParen(nil)
+		}
+	}
+	indexPredicate := p.parseWhere(false)
+	action := p.parseVarFromOptions(conflictActions, true)
+	var expressions []exp.Expression
+	if p.prev.TokenType == tokens.UPDATE {
+		p.match(tokens.SET)
+		expressions = p.parseCsv(p.parseEquality)
+	}
+	return p.expression(exp.OnConflict(exp.Args{
+		"duplicate":       duplicate,
+		"expressions":     expressions,
+		"action":          action,
+		"conflict_keys":   conflictKeys,
+		"index_predicate": indexPredicate,
+		"constraint":      constraint,
+		"where":           p.parseWhere(false),
+	}), nil, nil)
+}
+
+func (p *Parser) parseExists(not_ bool) any {
+	if !p.matchTextSeq("IF") {
+		return nil
+	}
+	if not_ && !p.match(tokens.NOT) {
+		return nil
+	}
+	if !p.match(tokens.EXISTS) {
+		return nil
+	}
+	return true
+}
+
+func (p *Parser) parseVarFromOptions(options optionsType, raiseUnmatched bool) exp.Expression {
+	start := p.curr
+	if !start.IsValid() {
+		return nil
+	}
+	option := stringsUpper(start.Text)
+	continuations, present := options[option]
+	index := p.index
+	p.advance()
+	matched := false
+	for _, kw := range continuations {
+		if p.matchTextSeq(kw...) {
+			option += " " + strings.Join(kw, " ")
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		if len(continuations) > 0 || !present {
+			if raiseUnmatched {
+				p.raiseError("Unknown option " + option)
+			}
+			p.retreat(index)
+			return nil
+		}
+	}
+	return exp.Var(exp.Args{"this": option})
+}
+
+func (p *Parser) parseMerge() exp.Expression {
+	p.match(tokens.INTO)
+	// joins=false matches upstream _parse_merge; the next token is always ON/USING/WHEN,
+	// which parseJoin can't consume anyway, but we keep the flag faithful.
+	target := p.parseTable(false, false, nil, false, false, false, false)
+	if target != nil && p.match(tokens.ALIAS, false) {
+		target.Set("alias", p.parseTableAlias(nil))
+	}
+	p.match(tokens.USING)
+	using := p.parseTable(false, false, nil, false, false, false, false)
+	args := exp.Args{"this": target, "using": using}
+	if p.match(tokens.ON) {
+		args["on"] = p.parseDisjunction()
+	}
+	if p.match(tokens.USING) {
+		args["using_cond"] = p.parseUsingIdentifiers()
+	}
+	args["whens"] = p.parseWhenMatched()
+	if returning := p.parseReturning(); returning != nil {
+		args["returning"] = returning
+	}
+	return p.expression(exp.Merge(args), nil, nil)
+}
+
+func (p *Parser) parseUsingIdentifiers() []exp.Expression {
+	return p.parseWrappedCsv(func() exp.Expression {
+		c := p.parseColumn()
+		if c != nil && c.Kind() == exp.KindColumn {
+			return c.This()
+		}
+		return c
+	}, true)
+}
+
+func (p *Parser) parseWhenMatched() exp.Expression {
+	whens := []exp.Expression{}
+	for p.match(tokens.WHEN) {
+		matched := !p.match(tokens.NOT)
+		p.matchTextSeq("MATCHED")
+		source := false
+		if p.matchTextSeq("BY", "TARGET") {
+			source = false
+		} else {
+			source = p.matchTextSeq("BY", "SOURCE")
+		}
+		var condition exp.Expression
+		if p.match(tokens.AND) {
+			condition = p.parseDisjunction()
+		}
+		p.match(tokens.THEN)
+		var then exp.Expression
+		if p.match(tokens.INSERT) {
+			if star := p.parseStar(); star != nil {
+				then = exp.Insert(exp.Args{"this": star})
+			} else {
+				var insThis exp.Expression
+				if p.matchTextSeq("ROW") {
+					insThis = exp.Var(exp.Args{"this": "ROW"})
+				} else {
+					insThis = p.parseValue(false)
+				}
+				var insExpr exp.Expression
+				if p.matchTextSeq("VALUES") {
+					insExpr = p.parseValue(true)
+				}
+				then = exp.Insert(exp.Args{"this": insThis, "expression": insExpr, "where": p.parseWhere(false)})
+			}
+		} else if p.match(tokens.UPDATE) {
+			if exprs := p.parseStar(); exprs != nil {
+				then = exp.Update(exp.Args{"expressions": exprs})
+			} else {
+				var setExprs []exp.Expression
+				if p.match(tokens.SET) {
+					setExprs = p.parseCsv(p.parseEquality)
+				}
+				then = exp.Update(exp.Args{"expressions": setExprs, "where": p.parseWhere(false)})
+			}
+		} else if p.match(tokens.DELETE) {
+			then = exp.Var(exp.Args{"this": p.prev.Text})
+		} else {
+			then = p.parseVarFromOptions(conflictActions, true)
+		}
+		whens = append(whens, p.expression(exp.When(exp.Args{"matched": matched, "source": source, "condition": condition, "then": then}), nil, nil))
+	}
+	return p.expression(exp.Whens(exp.Args{"expressions": whens}), nil, nil)
+}

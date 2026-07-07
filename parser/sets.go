@@ -814,10 +814,10 @@ var windowAliasTokens = buildWindowAliasTokens()
 var fetchTokens = buildFetchTokens()
 
 // typeTokens is a minimal port of parser.py:469 TYPE_TOKENS (the union of TYPE_TOKENS
-// plus STRUCT/NESTED/ENUM/AGGREGATE type-token subsets at parser.py:440-467). Full type
-// parsing / the DType enum is deferred to slice 3; this set exists only so buildFuncTokens
-// can seed FUNC_TOKENS from TYPE_TOKENS (not the much larger ID_VAR_TOKENS), matching
-// upstream FUNC_TOKENS = {explicit} + TYPE_TOKENS + SUBQUERY_PREDICATES (parser.py:825-874).
+// plus STRUCT/NESTED/ENUM/AGGREGATE type-token subsets at parser.py:440-467). It seeds
+// FUNC_TOKENS from TYPE_TOKENS (not the much larger ID_VAR_TOKENS), matching upstream
+// FUNC_TOKENS = {explicit} + TYPE_TOKENS + SUBQUERY_PREDICATES (parser.py:825-874), and
+// is consumed by parseTypes for the slice-1b DataType parser.
 var typeTokens = map[tokens.TokenType]bool{
 	tokens.BIT:               true,
 	tokens.BOOLEAN:           true,
@@ -951,6 +951,87 @@ var typeTokens = map[tokens.TokenType]bool{
 	// AGGREGATE_TYPE_TOKENS (parser.py:464)
 	tokens.AGGREGATEFUNCTION:       true,
 	tokens.SIMPLEAGGREGATEFUNCTION: true,
+}
+
+// dbCreatables mirrors parser.py:618 DB_CREATABLES.
+var dbCreatables = map[tokens.TokenType]bool{
+	tokens.DATABASE:            true,
+	tokens.DICTIONARY:          true,
+	tokens.FILE_FORMAT:         true,
+	tokens.MODEL:               true,
+	tokens.NAMESPACE:           true,
+	tokens.SCHEMA:              true,
+	tokens.SEMANTIC_VIEW:       true,
+	tokens.SEQUENCE:            true,
+	tokens.SINK:                true,
+	tokens.SOURCE:              true,
+	tokens.STAGE:               true,
+	tokens.STORAGE_INTEGRATION: true,
+	tokens.STREAMLIT:           true,
+	tokens.TABLE:               true,
+	tokens.TAG:                 true,
+	tokens.VIEW:                true,
+	tokens.WAREHOUSE:           true,
+}
+
+var creatables = buildCreatables()
+
+// bracketsTokens mirrors parser.py's bracket-token set for this slice, except L_BRACE is
+// intentionally deferred with JSON/map operators.
+var bracketsTokens = map[tokens.TokenType]bool{tokens.L_BRACKET: true}
+
+// selectStartTokens mirrors parser.py:1698 SELECT_START_TOKENS.
+var selectStartTokens = map[tokens.TokenType]bool{tokens.L_PAREN: true, tokens.WITH: true, tokens.SELECT: true}
+
+var updateAliasTokens = buildUpdateAliasTokens()
+
+// insertAlternatives mirrors parser.py:1663 INSERT_ALTERNATIVES.
+var insertAlternatives = map[string]bool{"ABORT": true, "FAIL": true, "IGNORE": true, "REPLACE": true, "ROLLBACK": true}
+
+type optionsType = map[string][][]string
+
+// conflictActions mirrors parser.py:1583 CONFLICT_ACTIONS.
+var conflictActions = optionsType{
+	"ABORT":    nil,
+	"FAIL":     nil,
+	"IGNORE":   nil,
+	"REPLACE":  nil,
+	"ROLLBACK": nil,
+	"UPDATE":   nil,
+	"DO":       {{"NOTHING"}, {"UPDATE"}},
+}
+
+var castActions = optionsType{
+	"RENAME": {{"FIELDS"}},
+	"ADD":    {{"FIELDS"}},
+}
+
+var trimTypes = map[string]bool{"LEADING": true, "TRAILING": true, "BOTH": true}
+
+func buildCreatables() map[tokens.TokenType]bool {
+	m := map[tokens.TokenType]bool{
+		tokens.COLUMN:      true,
+		tokens.CONSTRAINT:  true,
+		tokens.FOREIGN_KEY: true,
+		tokens.FUNCTION:    true,
+		tokens.INDEX:       true,
+		tokens.PROCEDURE:   true,
+		tokens.TRIGGER:     true,
+		tokens.TYPE:        true,
+	}
+	for tt := range dbCreatables {
+		m[tt] = true
+	}
+	return m
+}
+
+func buildUpdateAliasTokens() map[tokens.TokenType]bool {
+	m := map[tokens.TokenType]bool{}
+	for tt := range tableAliasTokens {
+		m[tt] = true
+	}
+	delete(m, tokens.SET)
+	return m
 }
 
 func buildFuncTokens() map[tokens.TokenType]bool {

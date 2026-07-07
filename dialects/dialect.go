@@ -17,6 +17,7 @@ type Dialect struct {
 	ColonIsVariantExtract   bool
 	NullOrdering            string
 	SupportsOrderByAll      bool
+	TryCastRequiresString   *bool
 }
 
 func Base() *Dialect {

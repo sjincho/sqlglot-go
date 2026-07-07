@@ -898,6 +898,8 @@ var tokenTypeNames = map[TokenType]string{
 	SENTINEL:                "SENTINEL",
 }
 
+func TypeName(t TokenType) string { return tokenTypeNames[t] }
+
 func (t TokenType) String() string {
 	if name, ok := tokenTypeNames[t]; ok {
 		return "TokenType." + name

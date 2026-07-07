@@ -108,6 +108,36 @@ const (
 	KindCoalesce
 	KindGreatest
 	KindLeast
+	KindInsert
+	KindUpdate
+	KindDelete
+	KindMerge
+	KindWhen
+	KindWhens
+	KindOnConflict
+	KindReturning
+	KindCreate
+	KindSchema
+	KindCommand
+	KindPivot
+	KindLateral
+	KindValues
+	KindColumnDef
+	KindDataType
+	KindDataTypeParam
+	KindCast
+	KindTryCast
+	KindCastToStrType
+	KindExtract
+	KindStrPosition
+	KindSubstring
+	KindTrim
+	KindCeil
+	KindFloor
+	KindGroupConcat
+	KindUnnest
+	KindArray
+	KindBracket
 )
 
 type Trait uint32
@@ -267,6 +297,36 @@ var argTypes = map[Kind][]argSpec{
 	KindCoalesce:            {{"this", true}, {"expressions", false}, {"is_nvl", false}, {"is_null", false}},
 	KindGreatest:            {{"this", true}, {"expressions", false}, {"ignore_nulls", true}},
 	KindLeast:               {{"this", true}, {"expressions", false}, {"ignore_nulls", true}},
+	KindInsert:              {{"hint", false}, {"with_", false}, {"is_function", false}, {"this", false}, {"expression", false}, {"conflict", false}, {"returning", false}, {"overwrite", false}, {"exists", false}, {"alternative", false}, {"where", false}, {"ignore", false}, {"by_name", false}, {"stored", false}, {"partition", false}, {"settings", false}, {"source", false}, {"default", false}},
+	KindUpdate:              {{"with_", false}, {"this", false}, {"expressions", false}, {"from_", false}, {"where", false}, {"returning", false}, {"order", false}, {"limit", false}, {"options", false}, {"hint", false}},
+	KindDelete:              {{"with_", false}, {"this", false}, {"using", false}, {"where", false}, {"returning", false}, {"order", false}, {"limit", false}, {"tables", false}, {"cluster", false}, {"hint", false}},
+	KindMerge:               {{"this", true}, {"using", true}, {"on", false}, {"using_cond", false}, {"whens", true}, {"with_", false}, {"returning", false}},
+	KindWhen:                {{"matched", true}, {"source", false}, {"condition", false}, {"then", true}},
+	KindWhens:               {{"expressions", true}},
+	KindOnConflict:          {{"duplicate", false}, {"expressions", false}, {"action", false}, {"conflict_keys", false}, {"index_predicate", false}, {"constraint", false}, {"where", false}},
+	KindReturning:           {{"expressions", true}, {"into", false}},
+	KindCreate:              {{"with_", false}, {"this", true}, {"kind", true}, {"expression", false}, {"exists", false}, {"properties", false}, {"replace", false}, {"refresh", false}, {"unique", false}, {"indexes", false}, {"no_schema_binding", false}, {"begin", false}, {"clone", false}, {"concurrently", false}, {"clustered", false}},
+	KindSchema:              {{"this", false}, {"expressions", false}},
+	KindCommand:             {{"this", true}, {"expression", false}},
+	KindPivot:               {{"this", false}, {"alias", false}, {"expressions", false}, {"fields", false}, {"unpivot", false}, {"using", false}, {"group", false}, {"columns", false}, {"include_nulls", false}, {"default_on_null", false}, {"into", false}, {"with_", false}, {"identify_pivot_strings", false}, {"prefixed_pivot_columns", false}, {"pivot_column_naming", false}},
+	KindLateral:             {{"this", true}, {"view", false}, {"outer", false}, {"alias", false}, {"cross_apply", false}, {"ordinality", false}},
+	KindValues:              {{"expressions", true}, {"alias", false}, {"order", false}, {"limit", false}, {"offset", false}},
+	KindColumnDef:           {{"this", true}, {"kind", false}, {"constraints", false}, {"exists", false}, {"position", false}, {"default", false}, {"output", false}},
+	KindDataType:            {{"this", true}, {"expressions", false}, {"nested", false}, {"values", false}, {"kind", false}, {"nullable", false}, {"collate", false}},
+	KindDataTypeParam:       {{"this", true}, {"expression", false}},
+	KindCast:                {{"this", true}, {"to", true}, {"format", false}, {"safe", false}, {"action", false}, {"default", false}},
+	KindTryCast:             {{"this", true}, {"to", true}, {"format", false}, {"safe", false}, {"action", false}, {"default", false}, {"requires_string", false}, {"null_on_text_overflow", false}, {"probe_date_format", false}},
+	KindCastToStrType:       {{"this", true}, {"to", true}},
+	KindExtract:             {{"this", true}, {"expression", true}},
+	KindStrPosition:         {{"this", true}, {"substr", true}, {"position", false}, {"occurrence", false}, {"clamp_position", false}},
+	KindSubstring:           {{"this", true}, {"start", false}, {"length", false}, {"zero_start", false}},
+	KindTrim:                {{"this", true}, {"expression", false}, {"position", false}, {"collation", false}},
+	KindCeil:                {{"this", true}, {"decimals", false}, {"to", false}},
+	KindFloor:               {{"this", true}, {"decimals", false}, {"to", false}},
+	KindGroupConcat:         {{"this", true}, {"separator", false}, {"on_overflow", false}},
+	KindUnnest:              {{"expressions", true}, {"alias", false}, {"offset", false}, {"explode_array", false}},
+	KindArray:               {{"expressions", false}, {"bracket_notation", false}, {"struct_name_inheritance", false}},
+	KindBracket:             {{"this", true}, {"expressions", true}, {"offset", false}, {"safe", false}, {"returns_list_for_maps", false}, {"json_access", false}},
 }
 
 var traitsOf = map[Kind]Trait{
@@ -343,6 +403,19 @@ var traitsOf = map[Kind]Trait{
 	KindCountIf:        TraitCondition | TraitFunc | TraitAggFunc,
 	KindQuantile:       TraitCondition | TraitFunc | TraitAggFunc,
 	KindCount:          TraitCondition | TraitFunc | TraitAggFunc,
+	KindCast:           TraitCondition | TraitFunc,
+	KindTryCast:        TraitCondition | TraitFunc,
+	KindCastToStrType:  TraitCondition | TraitFunc,
+	KindExtract:        TraitCondition | TraitFunc,
+	KindStrPosition:    TraitCondition | TraitFunc,
+	KindSubstring:      TraitCondition | TraitFunc,
+	KindTrim:           TraitCondition | TraitFunc,
+	KindCeil:           TraitCondition | TraitFunc,
+	KindFloor:          TraitCondition | TraitFunc,
+	KindArray:          TraitCondition | TraitFunc,
+	KindUnnest:         TraitCondition | TraitFunc,
+	KindBracket:        TraitCondition,
+	KindGroupConcat:    TraitCondition | TraitFunc | TraitAggFunc,
 }
 
 var primitive = map[Kind]bool{
@@ -463,6 +536,36 @@ var className = map[Kind]string{
 	KindCoalesce:            "Coalesce",
 	KindGreatest:            "Greatest",
 	KindLeast:               "Least",
+	KindInsert:              "Insert",
+	KindUpdate:              "Update",
+	KindDelete:              "Delete",
+	KindMerge:               "Merge",
+	KindWhen:                "When",
+	KindWhens:               "Whens",
+	KindOnConflict:          "OnConflict",
+	KindReturning:           "Returning",
+	KindCreate:              "Create",
+	KindSchema:              "Schema",
+	KindCommand:             "Command",
+	KindPivot:               "Pivot",
+	KindLateral:             "Lateral",
+	KindValues:              "Values",
+	KindColumnDef:           "ColumnDef",
+	KindDataType:            "DataType",
+	KindDataTypeParam:       "DataTypeParam",
+	KindCast:                "Cast",
+	KindTryCast:             "TryCast",
+	KindCastToStrType:       "CastToStrType",
+	KindExtract:             "Extract",
+	KindStrPosition:         "StrPosition",
+	KindSubstring:           "Substring",
+	KindTrim:                "Trim",
+	KindCeil:                "Ceil",
+	KindFloor:               "Floor",
+	KindGroupConcat:         "GroupConcat",
+	KindUnnest:              "Unnest",
+	KindArray:               "Array",
+	KindBracket:             "Bracket",
 }
 
 // varLenArgs is the authoritative is_var_len_args=True set (mirroring the upstream Func
@@ -479,4 +582,5 @@ var varLenArgs = map[Kind]bool{
 	KindCoalesce:  true,
 	KindGreatest:  true,
 	KindLeast:     true,
+	KindArray:     true,
 }
