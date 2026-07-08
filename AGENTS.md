@@ -35,6 +35,16 @@ The probe API that M1 targets (all working):
   (`probe/parity_test.go` runs the real `probe.py` under the pinned reference; `probe/golden_test.go`
   guards the same output hermetically via committed `probe/testdata/golden.json`).
 
+## JVM binding (`jvm/`)
+
+An in-process JVM binding exposes the probe to Kotlin/Java via the Foreign Function & Memory API.
+`cmd/libsqlglot/main.go` is a cgo `c-shared` entry point (`ProbeJSON` / `FreeCString`, backed by
+`probe.ProbeJSONSafe` — total, never panics across the boundary); `jvm/` is a Gradle project whose
+`buildNativeLib` task compiles that to `libsqlglot.{dylib,so}` and bundles it, with an FFM wrapper
+`io.github.sjincho.sqlglot.Sqlglot.probeJson(sql, dialect, schemaJson): String`. Consumers vendor the
+repo via `git subtree` + `includeBuild("…/jvm")` — see `docs/USING_FROM_JVM.md`. cgo is confined to
+the `cmd/libsqlglot` package; pure-Go consumers of the library never pull it in.
+
 ## Central design decision — the AST node model
 
 Upstream `Expression` is dynamically typed: an `args: dict[str, Any]` of children

@@ -65,6 +65,20 @@ func main() {
 }
 ```
 
+## Use from the JVM (Kotlin/Java)
+
+An in-process **JVM binding** lives in [`jvm/`](./jvm) — it calls the Go lineage probe through the
+Java Foreign Function & Memory API (`java.lang.foreign`), one call, JSON out:
+
+```kotlin
+val json = io.github.sjincho.sqlglot.Sqlglot.probeJson(sql, /* "mysql"|"postgres" */ dialect, schemaJson)
+```
+
+The output is the same **ProbeResult** JSON as the Python probe (verified at 94/94 parity). The
+recommended way to consume it — `git subtree` + a Gradle composite build, no publishing — is in
+**[docs/USING_FROM_JVM.md](./docs/USING_FROM_JVM.md)**. Requires JDK 22+ to consume and the Go
+toolchain to build the native library.
+
 ## Development
 
 ```bash

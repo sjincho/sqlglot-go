@@ -263,6 +263,31 @@ func ProbeJSON(sql, dialect, schemaJSON string) (string, error) {
 	return string(encoded), nil
 }
 
+// ProbeJSONSafe is the total, panic-safe entry point for the c-shared / FFI boundary. It ALWAYS
+// returns a valid ProbeResult JSON string — never an error, never a panic escaping to the caller
+// (which, across a cgo boundary, would crash the host process). Any internal error or panic becomes
+// a fail-closed (resolved=false) result, the safe direction for a security probe.
+func ProbeJSONSafe(sql, dialect, schemaJSON string) (out string) {
+	defer func() {
+		if r := recover(); r != nil {
+			out = mustFailJSON("LINEAGE", fmt.Sprintf("panic: %v", r))
+		}
+	}()
+	s, err := ProbeJSON(sql, dialect, schemaJSON)
+	if err != nil {
+		return mustFailJSON("LINEAGE", err.Error())
+	}
+	return s
+}
+
+func mustFailJSON(stage, detail string) string {
+	b, err := json.Marshal(failResult(stage, detail))
+	if err != nil {
+		return `{"resolved":false,"failedStage":"LINEAGE","detail":"marshal error","outputColumns":0,"tracedColumns":0,"origins":[],"references":{},"isWrite":false,"rewrittenSql":null}`
+	}
+	return string(b)
+}
+
 func (p *prober) classifyWrite() *ProbeResult {
 	p.isWrite = false
 	p.analyzeQuery = p.root
