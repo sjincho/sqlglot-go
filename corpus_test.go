@@ -220,24 +220,49 @@ func writeGaps(fails map[gapKey]string) error {
 }
 
 // Pass counts observed from a full local run over Scope A (identity.sql) plus
-// Scope B (dialect_identity.jsonl): base 880/955, mysql 336/424, postgres
-// 385/468 (after the TYPE/CAST/`::`/AT TIME ZONE parity slice: faithful ports of
-// upstream _parse_type/_parse_types/_parse_at_time_zone/_parse_atom close `1::int`-style
-// literal casts, bare `ARRAY<...>`/`STRUCT<...>` type expressions, `x AT TIME ZONE zone`
-// (chainable, any dialect), postgres PSEUDO_TYPE/OBJECT_IDENTIFIER round-trips
-// (`x::regclass`/`x::cstring`/...), postgres user-defined-type CAST targets
-// (`CAST(5 AS "MySchema"."MyType")`), the mysql SET(...) enum type as a CAST target and the
-// `CHAR CHARACTER SET <cs>` charset suffix; mysql's attimezone_sql override drops the zone and
-// flags the query unsupported, matching upstream). LENGTH/CHAR_LENGTH canonicalization is
-// deliberately deferred (ROADMAP 5b per-dialect FUNCTIONS; see expressions/functions.go),
-// so postgres CHAR_LENGTH/CHARACTER_LENGTH stay in parity_gaps.txt. These are monotonic
+// Scope B (dialect_identity.jsonl): base 920/955, mysql 392/424, postgres
+// 429/468 (after the parallel parity-gap-closing pass across range-ops
+// (binary/range operators: GLOB, `~*`/regexp-ilike, `-|-` adjacent, postgres
+// array/JSONB `@>`/`<@`/`&&`/`?`/`?|`/`?&`, MATCH AGAINST, OPERATOR(...), etc.),
+// affix-ops (COLLATE, unary `~`, `|/`/`||/` -> SQRT/CBRT, `<<`/`>>` bitwise
+// shift, mysql XOR), ident-placeholder (mysql placeholders/session vars,
+// CASE-tail fixes, dialect-gated Dialect.Functions plumbing), from-dml (Hive/
+// Spark `PARTITION(...)` table selector, nested-join ON/USING fallback,
+// `INSERT OVERWRITE [LOCAL] DIRECTORY` + `ROW FORMAT` clause, T-SQL/MySQL
+// table hints), hints (`/*+ ... */` optimizer hint preservation on SELECT/
+// INSERT/UPDATE/DELETE), ddl (CREATE FUNCTION/PROCEDURE/INDEX/TRIGGER
+// structured properties, the RETURNS/LANGUAGE/SQL SECURITY/... tail),
+// dialect-funcs (mysql CURDATE/CURTIME/DATABASE/DAY_OF_*/WEEK_OF_YEAR/LCASE/
+// UCASE/INSTR/TIME_STR_TO_UNIX spelling gaps; canonical CurrentDate/Length/
+// Trunc/Overlay/Variadic nodes), slice-strings (bracket-subscript `x[1:2]`
+// slicing, NATIONAL_STRING `N'...'` literals), and a generator-fidelity/
+// INTO-clause tail slice. Integration also wired the cross-part generator
+// seams the clusters produced nodes for: INSERT OVERWRITE [LOCAL] DIRECTORY
+// rendering (exp.Directory), the mysql query-hint separator, generic Xor
+// connector rendering, and the `_parse_column_ops(this) if this` guard
+// (`SELECT if.x`). LENGTH/CHAR_LENGTH canonicalization is now closed
+// via the dialect-funcs cluster. A follow-up integrator residual-fix round
+// then closed mysql PARTITION(...) FROM-selection (SUPPORTS_PARTITION_SELECTION)
+// and reserved-keyword identifier quoting (a mysql "row" alias is backtick-
+// quoted), postgres MERGE target-table unqualification, and the bare
+// CURRENT_DATE/CURDATE no-paren function node (date_add(current_date, ...)).
+// The remaining gaps are dominated
+// by out-of-scope clusters intentionally deferred by the parent plan (JSON
+// extract operators `->`/`->>`/`#>`/`#>>`, JSON_OBJECT/JSON_VALUE/
+// XMLELEMENT/XMLTABLE/CONVERT/CHAR(...USING...)/TIME_STR_TO_TIME,
+// LATERAL VIEW/TABLESAMPLE/FOR UPDATE-SHARE locking/CACHE/COPY) plus a small
+// residual documented in parity_gaps.txt (comment bubbling - ROADMAP.md's
+// parser-level-comment-bubbling divergence, parser.py:8499-8501; adjacent
+// string literals `'a' 'b'` - ROADMAP.md's deferred-feature divergence;
+// mysql `:=` user-variable assignment; postgres E'...' escape-string
+// sequences and `%s`/`%(name)s` DB-API placeholders). These are monotonic
 // pass floors — raise them as coverage improves, never lower them to mask a
 // regression. A drop below any floor fails the build even if the regressing
 // case is also (illegitimately) added to parity_gaps.txt.
 const (
-	minPassBase     = 880
-	minPassMySQL    = 336
-	minPassPostgres = 385
+	minPassBase     = 920
+	minPassMySQL    = 392
+	minPassPostgres = 429
 )
 
 // Minimum record counts per corpus, from the committed fixtures (identity.sql:
