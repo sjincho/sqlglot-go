@@ -47,18 +47,18 @@ type Dialect struct {
 	// `CREATE TABLE x AS SELECT ...`; postgres (and tsql) keep the inline INTO.
 	SupportsSelectInto bool
 	// ValuesIsFunction ports the MySQL parser's FUNC_TOKENS addition of TokenType.VALUES
-	// (parsers/mysql.py:63-70) paired with its FUNCTION_PARSERS["VALUES"] override
-	// (parsers/mysql.py:158-160): `VALUES(col)` in `ON DUPLICATE KEY UPDATE` is an
-	// Anonymous function call, not the VALUES table-constructor keyword. Divergence: this
-	// port has no per-dialect FUNC_TOKENS/FUNCTION_PARSERS table (deferred to slice 5b), so
-	// a single dialect flag gates the shared parseFunctionCall/functionParsers["VALUES"]
-	// entry instead of a real per-dialect override.
+	// (parsers/mysql.py:63-70), paired upstream with its FUNCTION_PARSERS["VALUES"] override
+	// (parsers/mysql.py:158-160): `VALUES(col)` in `ON DUPLICATE KEY UPDATE` is a function
+	// call, not the VALUES table-constructor keyword. Callback overrides now live in the
+	// parser-side dialect registry, but FUNC_TOKENS admission remains a separate,
+	// not-yet-generalized problem: this flag lets parseFunctionCall admit VALUES before
+	// callback dispatch.
 	ValuesIsFunction bool
-	// CharsetIsFunction ports the MySQL parser's FUNC_TOKENS addition of
+	// CharsetIsFunction likewise ports MySQL's FUNC_TOKENS addition of
 	// TokenType.CHARACTER_SET (parsers/mysql.py:63-70): `CHARSET(...)`/`CHARACTER SET(...)`
 	// is an ordinary (Anonymous) function call, not the CHARACTER SET/CHARSET keyword.
-	// Same divergence rationale as ValuesIsFunction: this port has no per-dialect
-	// FUNC_TOKENS table, so a dedicated flag gates the shared parseFunctionCall instead.
+	// The parser-side callback registry does not control that earlier admission decision,
+	// so this flag remains until FUNC_TOKENS itself is generalized per dialect.
 	CharsetIsFunction bool
 	// DuplicateKeyUpdateWithSet ports the generator flag of the same name
 	// (generator.py:374, generators/mysql.py:137): base emits `ON DUPLICATE KEY UPDATE SET

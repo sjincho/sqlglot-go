@@ -387,7 +387,7 @@ func (p *Parser) parseStatement() exp.Expression {
 	if !p.curr.IsValid() {
 		return nil
 	}
-	if parse := statementParsers[p.curr.TokenType]; parse != nil {
+	if parse := p.statementParser(p.curr.TokenType); parse != nil {
 		p.advance()
 		comments := p.prevComments
 		stmt := parse(p)
@@ -2433,19 +2433,6 @@ func (p *Parser) parseFunction(functions map[string]func([]exp.Expression) exp.E
 	return p.parseFunctionCall(functions, anonymous, optionalParens, anyToken)
 }
 
-// noParenFunctionParserFor returns the NO_PAREN_FUNCTION_PARSERS entry for name if it applies
-// to this dialect. Upstream keeps this table per-dialect (parser.py:1470); this port shares one
-// global map (per-dialect parser tables are deferred to slice 5b) and filters by dialect here.
-// VARIADIC is postgres-only (parsers/postgres.py:142); every other entry is base-scope and
-// applies to all dialects.
-func (p *Parser) noParenFunctionParserFor(name string) func(*Parser) exp.Expression {
-	parser := noParenFunctionParsers[name]
-	if parser == nil || (name == "VARIADIC" && p.dialect.Name != "postgres") {
-		return nil
-	}
-	return parser
-}
-
 func (p *Parser) parseFunctionCall(functions map[string]func([]exp.Expression) exp.Expression, anonymous bool, optionalParens bool, anyToken bool) exp.Expression {
 	if !p.curr.IsValid() {
 		return nil
@@ -2498,27 +2485,7 @@ func (p *Parser) parseFunctionCall(functions map[string]func([]exp.Expression) e
 	}
 	p.advance(2)
 	var result exp.Expression
-	parser := functionParsers[upper]
-	// Upstream FUNCTION_PARSERS is per-dialect: "VALUES" lives only in MySQL's map
-	// (parsers/mysql.py:158-160) and "SUBSTR" is a MySQL-only alias of _parse_substring
-	// (parsers/mysql.py:162; base/Postgres only register "SUBSTRING", parser.py:1515, so
-	// `SUBSTR(1 FROM 2 FOR 3)` fails to parse there - parity_gaps.txt gap 127 is mysql-only).
-	// This port keeps one shared map, so gate both entries by the dialect: otherwise a quoted
-	// identifier like `"VALUES"(a)` in base/Postgres would wrongly parse as the MySQL VALUES
-	// function instead of an Anonymous call, and base/Postgres SUBSTR(...) would wrongly gain
-	// MySQL's FROM/FOR grammar instead of following the plain comma-arg FunctionByName path.
-	if (upper == "VALUES" && !p.dialect.ValuesIsFunction) || (upper == "SUBSTR" && p.dialect.Name != "mysql") {
-		parser = nil
-	}
-	// JSON_VALUE's FUNCTION_PARSERS entry is only registered by MySQL (parsers/mysql.py:161)
-	// among base/MySQL/Postgres; base and Postgres have no _parse_json_value entry at all, so
-	// `JSON_VALUE(...)` there falls through to a plain Anonymous call like any other function.
-	if upper == "JSON_VALUE" && p.dialect.Name != "mysql" {
-		parser = nil
-	}
-	if upper == "DATE_PART" && p.dialect.Name != "postgres" {
-		parser = nil
-	}
+	parser := p.functionParser(upper)
 	if parser != nil && !anonymous {
 		result = parser(p)
 	} else {
@@ -3138,9 +3105,9 @@ func init() {
 		"CEIL":    func(p *Parser) exp.Expression { return p.parseCeilFloor(exp.KindCeil) },
 		"FLOOR":   func(p *Parser) exp.Expression { return p.parseCeilFloor(exp.KindFloor) },
 		"EXTRACT": func(p *Parser) exp.Expression { return p.parseExtract() },
-		// Registered unconditionally, but nilled out below for anything but Postgres
-		// (parsers/postgres.py:156 FUNCTION_PARSERS - base/MySQL have no DATE_PART entry, so
-		// DATE_PART(...) there parses as a plain Anonymous call).
+		// Registered unconditionally in the base singleton, but functionParser exposes it only
+		// through the Postgres fallback (parsers/postgres.py:156 FUNCTION_PARSERS). Base/MySQL
+		// have no DATE_PART entry, so DATE_PART(...) there parses as a plain Anonymous call.
 		"DATE_PART":      func(p *Parser) exp.Expression { return p.parseDatePart() },
 		"POSITION":       func(p *Parser) exp.Expression { return p.parsePosition() },
 		"SUBSTRING":      func(p *Parser) exp.Expression { return p.parseSubstring() },
@@ -3151,11 +3118,10 @@ func init() {
 		"XMLTABLE":       func(p *Parser) exp.Expression { return p.parseXMLTable() },
 		"JSON_OBJECT":    func(p *Parser) exp.Expression { return p.parseJSONObject(false) },
 		"JSON_OBJECTAGG": func(p *Parser) exp.Expression { return p.parseJSONObject(true) },
-		// Registered here unconditionally, but the dialect gate in parseFunctionCall (which
-		// consults this map) nils it out for anything but MySQL: among base/MySQL/Postgres,
-		// only MySQL's FUNCTION_PARSERS registers _parse_json_value (parsers/mysql.py:161) -
-		// base/Postgres have no JSON_VALUE entry at all, so JSON_VALUE(...) there parses as a
-		// plain Anonymous call.
+		// Registered unconditionally in the base singleton, but functionParser exposes it only
+		// through the MySQL fallback: among base/MySQL/Postgres, only MySQL's FUNCTION_PARSERS
+		// registers _parse_json_value (parsers/mysql.py:161). Base/Postgres have no JSON_VALUE
+		// entry, so JSON_VALUE(...) there parses as a plain Anonymous call.
 		"JSON_VALUE": func(p *Parser) exp.Expression { return p.parseJSONValue() },
 		// MySQL-only in practice: only reachable when ValuesIsFunction gates TokenType.VALUES
 		// into the function-call path (parsers/mysql.py:158-160). `VALUES(col)` inside

@@ -340,8 +340,8 @@ func (p *Parser) parseJSONTable() exp.Expression {
 	})
 }
 
-// init registers this file's FUNCTION_PARSERS/NO_PAREN_FUNCTION_PARSERS entries by plain key
-// assignment into the shared functionParsers/noParenFunctionParsers package vars (see the
+// init registers this file's base FUNCTION_PARSERS/NO_PAREN_FUNCTION_PARSERS entries by plain
+// key assignment into the shared functionParsers/noParenFunctionParsers package vars (see the
 // package-var doc comments on statementParsers/dispatch for why this is safe regardless of
 // init() run order across files: parser.go's own init() only ever does a full map-literal
 // REASSIGNMENT of these two vars, and Go runs same-package init() funcs in lexical filename
@@ -350,20 +350,20 @@ func (p *Parser) parseJSONTable() exp.Expression {
 func init() {
 	// OVERLAY is a base FUNCTION_PARSERS entry (parser.py:1511) - not dialect-gated.
 	functionParsers["OVERLAY"] = (*Parser).parseOverlay
-	// SUBSTR is MySQL-only upstream (parsers/mysql.py:162); gated in parseFunctionCall
-	// (parser.go, see the "Upstream FUNCTION_PARSERS is per-dialect" comment there) rather
-	// than here, since the gate lives alongside the sibling VALUES gate it mirrors.
+	// SUBSTR is MySQL-only upstream (parsers/mysql.py:162). The base singleton retains this
+	// pre-existing entry for zero behavior change; functionParser applies the MySQL-only
+	// compatibility filter after consulting parser-side dialect overrides.
 	functionParsers["SUBSTR"] = (*Parser).parseSubstring
 	// CONCAT is a base FUNCTIONS builder (parser.py:345-349), but unlike the FunctionByName
 	// builders it needs the dialect (safe/coalesce), so it lives here in the dialect-aware
 	// FUNCTION_PARSERS map instead. CONCAT_WS is left Anonymous - see parseConcat's note.
 	functionParsers["CONCAT"] = (*Parser).parseConcat
 
-	// VARIADIC is postgres-only (parsers/postgres.py:142 NO_PAREN_FUNCTION_PARSERS). This port
-	// shares one global map (a per-dialect NO_PAREN_FUNCTION_PARSERS table is deferred to slice
-	// 5b, same caveat as FUNC_TOKENS/FUNCTION_PARSERS elsewhere) and filters by dialect at the
-	// lookup sites via noParenFunctionParserFor, so in base/mysql this entry is invisible and a
-	// bare `VARIADIC` stays a column while `VARIADIC(x)` parses as an ordinary function call.
+	// VARIADIC is postgres-only (parsers/postgres.py:142 NO_PAREN_FUNCTION_PARSERS). The base
+	// singleton retains this pre-existing entry for zero behavior change;
+	// noParenFunctionParserFor applies the Postgres-only compatibility filter after consulting
+	// parser-side dialect overrides, so in base/mysql a bare `VARIADIC` stays a column while
+	// `VARIADIC(x)` parses as an ordinary function call.
 	noParenFunctionParsers["VARIADIC"] = func(p *Parser) exp.Expression {
 		return p.expression(exp.Variadic(exp.Args{"this": p.parseBitwise()}), nil, nil)
 	}

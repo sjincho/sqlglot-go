@@ -16,11 +16,11 @@ func init() {
 
 // parseEndTransaction ports the Postgres STATEMENT_PARSERS override
 // (parsers/postgres.py:182): `{TokenType.END: lambda self: self._parse_commit_or_rollback()}`.
-// The shared statementParsers map is dialect-agnostic (there is no per-dialect override
-// table yet - ROADMAP 5b), so the dialect gate lives here: only Postgres treats a leading
-// END as a transaction terminator (END -> COMMIT). For base/MySQL, END is an ordinary
-// identifier/keyword, so retreat past the token parseStatement consumed and fall back to
-// the normal expression path - keeping e.g. `END AND CHAIN` as `END AND CHAIN`.
+// The parser-side dialect override registry now supports statement callbacks, but its production
+// overlays remain empty for this infrastructure-only slice. Retain the pre-existing END entry in
+// the base singleton and this Postgres-only fallback gate for zero behavior change: Postgres treats
+// a leading END as a transaction terminator (END -> COMMIT), while base/MySQL retreat past the token
+// parseStatement consumed and use the normal expression path, preserving `END AND CHAIN`.
 func (p *Parser) parseEndTransaction() exp.Expression {
 	if p.dialect.Name != "postgres" {
 		p.retreat(p.index - 1)

@@ -117,7 +117,7 @@ func (p *Parser) parseDescribeStructured() exp.Expression {
 	}
 
 	var this exp.Expression
-	if _, ok := statementParsers[p.curr.TokenType]; ok {
+	if p.statementParser(p.curr.TokenType) != nil {
 		this = p.parseStatement()
 	} else {
 		this = p.parseDescribeThis()
