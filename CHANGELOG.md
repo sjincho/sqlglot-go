@@ -1,0 +1,142 @@
+# Changelog
+
+All notable changes to sqlglot-go are documented here.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
+adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (pre-1.0: minor versions may
+carry additive API changes; breaking changes to exported signatures are called out under _Changed_).
+
+sqlglot-go is a Go port of [tobymao/sqlglot](https://github.com/tobymao/sqlglot) **v30.12.0**.
+Intentional divergences from upstream are tracked in [DEVIATIONS.md](./DEVIATIONS.md); the remaining
+port surface is tracked in [ROADMAP.md](./ROADMAP.md).
+
+**How this file is maintained.** Land every user-visible change under **`## [Unreleased]`** as it
+merges (grouped _Added_ / _Changed_ / _Deprecated_ / _Removed_ / _Fixed_ / _Security_). **On release,
+the releaser moves the `[Unreleased]` entries into a new `## [X.Y.Z] - YYYY-MM-DD` section**, leaves
+`[Unreleased]` empty, adds the version's `compare` link at the bottom, then commits and tags. See the
+release steps in [AGENTS.md](./AGENTS.md#releasing).
+
+## [Unreleased]
+
+_Nothing yet. New changes land here until the next release._
+
+## [0.5.0] - 2026-07-12
+
+Proxy-monster enabler slices: opt-in analysis APIs and beyond-upstream grammar, each faithful
+(round-trip + AST-shape asserted) and each tracked in DEVIATIONS.md. Round-trip parity is unchanged —
+**1847/1847** identity-corpus cases (base 955/955, MySQL 424/424, Postgres 468/468) — and the AST
+fidelity floor holds.
+
+### Added
+- **Opt-in database search-path table qualification** — `QualifyOpts.SearchPath []string` resolves an
+  unqualified table against an ordered list of schemas by _proven existence_ in the schema, stamping
+  the first hit's `db`. Fail-closed: a flat/db-incapable schema never stamps (no false existence
+  proof), and it resolves a 2-part `Table{this, db}` probe against a 3-level `catalog.schema.table`
+  schema, leaving `catalog` for the caller. Opt-in; the zero value preserves fixed DB/Catalog
+  qualification. (#3)
+- **Structural PostgreSQL `EXPLAIN`** — parsed into a `Describe` node instead of a raw `Command`, so
+  it round-trips byte-identically and makes Postgres uniform with MySQL. (#3)
+- **`(*Dialect).FoldIdentifierName(name, isTable)`** — per-strategy, string-level identifier fold for
+  a detached catalog key (no AST node required). (#3)
+- **MySQL `INSERT … SET`** desugaring to `(cols) VALUES (…)` and the **`REPLACE`** statement
+  (`REPLACE INTO …`), disambiguated from the `REPLACE()` function. (#3)
+- **Beyond-upstream divergence mechanism** — `testdata/upstream_extensions.jsonl` ledger plus a
+  `.reference`-gated pin-tripwire test that re-asserts pinned upstream's behavior, so a future
+  reference bump fails loudly if upstream catches up to a ported extension. (#3)
+- **Top-level `UPDATE` / `DELETE` / `MERGE` scopes** for analysis — `TraverseScope` / `BuildScope`
+  now yield a DML-root scope binding the target and its `FROM`/`USING`/`JOIN` sources and columns.
+  Analysis-only and fail-closed (a malformed/incomplete DML omits the root scope rather than emitting
+  a partial one); the optimizer/qualify passes keep the upstream-faithful traversal. (#4)
+- **Opt-in MySQL version/executable comment activation** — a `mysql_version=<MYSQL_VERSION_ID>`
+  dialect setting (the 5-digit integer `major*10000 + minor*100 + patch`, e.g. `80035`) activates
+  `/*! … */` and version-gated `/*!NNNNN … */` comment bodies into the token stream when
+  `NNNNN ≤ MYSQL_VERSION_ID`. Default (unset) strips them as before — zero corpus divergence. Only
+  `/*!` version comments are activated; `/*+` optimizer hints stay ordinary comments.
+  (DEVIATIONS §1.5) (#6)
+- **Tokenizer-sharing enablers** — `(*Dialect).IsReservedKeyword(word)` (case-safe accessor over the
+  reserved set), plus documented fail-closed contracts for `Tokenize` (errors, never truncates, on
+  unterminated input) and `Token.Start`/`End` (inclusive rune offsets into the original source;
+  slice the source for the byte-exact lexeme). (#6)
+- **Opt-in Qualify resolution report** — `QualifyOpts.ResolutionReport map[exp.Expression]ResolvedSource`
+  surfaces the per-source classification Qualify's scope pass already computes: `SourceKind`
+  (`Physical`, `CTE`, `Derived`, `Subquery`, `Unresolved`) plus catalog/schema/table identity for
+  physical sources. Classification reads the resolved source's dynamic type (never the node's own
+  `KindTable`), so a CTE reference is never mislabeled a physical table. `Unresolved` is the zero
+  value (missing lookups fail closed); a nil report is a strict no-op. Composes with the DML scopes
+  above: a DML root classifies its target _and_ read-sources. (#7, closes #5)
+
+### Changed
+- `optimizer.QualifyTables` gained two trailing arguments — `searchPath []string` and `schema.Schema`
+  — to support opt-in search-path qualification. Direct callers must pass `nil, nil` for the prior
+  behavior. (#3)
+
+### Fixed
+- **MySQL `--` line comment** now requires a trailing whitespace/control character (or EOF) to start a
+  comment, matching the server: `1--2` tokenizes as `1 - -2`, not `1` then a comment. Upstream
+  mis-tokenizes this. (DEVIATIONS §1.4) (#2 groundwork; corrected edge in #3)
+
+## [0.4.0] - 2026-07-12
+
+### Added
+- MySQL `MATCH(...) AGAINST(...)` full-text search parsing.
+- MySQL `GROUP_CONCAT(... SEPARATOR ...)` parser + generator support.
+- `Node.Meta` (upstream `Expression.meta`) with `is_table` / `case_sensitive` wiring.
+- Typed `*Dialect` accepted throughout via `any`-threading, restoring upstream's polymorphic
+  `DialectType` argument (a passed `*Dialect` instance flows through unchanged).
+
+### Fixed
+- MySQL `--` line comment requires a trailing space (initial fix; see 0.5.0 for the ASCII-only edge).
+
+## [0.3.2] - 2026-07-11
+
+### Fixed
+- MySQL `mysql_case_sensitive_table_names` (lctn=0) role model — preserve _all_ relation-level
+  identifiers (table/db/catalog, qualifiers, aliases, CTE names) case-sensitively while folding
+  column names. Documented the MariaDB CTE-name case-insensitivity caveat (DEVIATIONS §1.2).
+
+## [0.3.1] - 2026-07-11
+
+### Changed
+- Exported `dialects.MySQLLower` and baked the MySQL case-fold table into generated Go code (dropped
+  the runtime `.tsv` data file), so the fold is the single shared implementation across languages.
+
+## [0.3.0] - 2026-07-11
+
+### Added
+- MySQL-exact identifier folding (Unicode-simple, accent-preserving, via MySQL's `.tolower` map) and
+  two opt-in `normalization_strategy` settings modeling `lower_case_table_names` = 0 / 1-2
+  (DEVIATIONS §1.2).
+
+## [0.2.0] - 2026-07-11
+
+### Added
+- **100% round-trip parity** for base + MySQL + Postgres — 1847/1847 identity-corpus cases — with a
+  monotonic corpus floor guarding against regressions.
+- **AST fidelity guard** — no statement fakes a round-trip via a raw-text `Command` where upstream
+  builds a structured node (ported the `Create`/Properties subsystem + `Analyze`/`Comment`).
+- **Athena / Presto / Trino / Hive** parser + tokenizer chain (parse + qualify + lineage scope; no
+  generators — lineage never transpiles).
+
+### Changed
+- Unquoted identifier case-folding is **ASCII-only** (matching real engines on multi-byte encodings),
+  not full-Unicode `str.lower()` as upstream does (DEVIATIONS §1.1).
+
+## [0.1.0] - 2026-07-10
+
+### Added
+- Initial faithful port of the sqlglot v30.12.0 **parse → AST → generate** core: tokenizer, the
+  data-driven AST/node model, the parser (SELECT/DML/DDL, CTE, set-ops, clauses, predicates,
+  functions, types/CAST, PIVOT/LATERAL/VALUES, window/JSON/interval), and the base generator.
+- Schema layer (`MappingSchema`, `DataType.build`), the `qualify` pass (qualify_tables →
+  normalize_identifiers → qualify_columns → quote_identifiers → validate), and `traverse_scope` +
+  the `Scope` API.
+- MySQL + Postgres dialect wiring; the lineage probe path (94/94 parity vs Python sqlglot 30.12.0).
+
+[Unreleased]: https://github.com/sjincho/sqlglot-go/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/sjincho/sqlglot-go/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/sjincho/sqlglot-go/compare/v0.3.2...v0.4.0
+[0.3.2]: https://github.com/sjincho/sqlglot-go/compare/v0.3.1...v0.3.2
+[0.3.1]: https://github.com/sjincho/sqlglot-go/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/sjincho/sqlglot-go/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/sjincho/sqlglot-go/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/sjincho/sqlglot-go/releases/tag/v0.1.0

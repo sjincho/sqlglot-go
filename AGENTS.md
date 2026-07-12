@@ -59,6 +59,14 @@ builds a structured node (`fidelity_test.go` + `testdata/fidelity_cases.txt`). W
 `schema.MappingSchema` + `DataType.build`, the `qualify` pass (qualify_tables → normalize_identifiers →
 qualify_columns → quote_identifiers → validate), and `traverse_scope` + the full `Scope` API.
 
+On top of that faithful core, a set of **opt-in, additive** enabler APIs (all in DEVIATIONS.md, none
+change default same-dialect output) landed for the downstream lineage/gating consumer: search-path
+table qualification (`QualifyOpts.SearchPath`), top-level `UPDATE`/`DELETE`/`MERGE` analysis scopes
+(`TraverseScope`/`BuildScope`, fail-closed), a Qualify resolution report (`QualifyOpts.ResolutionReport`
+→ per-source `SourceKind`), MySQL version/executable-comment activation (`mysql_version`), plus
+structural PG `EXPLAIN`, MySQL `INSERT … SET`/`REPLACE`, and the `FoldIdentifierName`/`IsReservedKeyword`
+helpers. See **[CHANGELOG.md](./CHANGELOG.md)** for the per-version history.
+
 **Remaining work** (see `ROADMAP.md`): the rest of sqlglot's optimizer — `simplify` (full),
 `normalize`, `pushdown_predicates`/`pushdown_projections`, `eliminate_*`, `merge_subqueries`,
 `unnest_subqueries`, `optimize_joins`, `canonicalize`, and the top-level `optimize()` orchestrator;
@@ -100,3 +108,21 @@ confirm a claimed bug against `.reference/` before "fixing" it — some findings
 - `gofmt` + `go vet` clean; `go test ./...` green before any commit/push.
 - Package layout mirrors the Python module layout (`expressions/`, `optimizer/`, `dialects/`,
   `generator/`, `parser/`, `tokens/`, `schema/`, …).
+
+## Releasing
+
+[CHANGELOG.md](./CHANGELOG.md) is kept in [Keep a Changelog](https://keepachangelog.com/) form and
+versioned with [SemVer](https://semver.org/) (pre-1.0: additive API changes bump the minor; breaking
+changes to an exported signature are called out under _Changed_). Every user-visible change lands
+under `## [Unreleased]` as it merges.
+
+To cut a release `X.Y.Z`:
+
+1. Ensure `main` is green (`go test ./...`, `go vet ./...`, `gofmt -l .`) and all intended changes are
+   under `## [Unreleased]`.
+2. **Move** the `[Unreleased]` entries into a new `## [X.Y.Z] - YYYY-MM-DD` section (leave
+   `[Unreleased]` empty), and add the `[X.Y.Z]: …/compare/vPREV...vX.Y.Z` link at the bottom.
+3. Pick `X.Y.Z` from the moved entries: a `Changed`/`Removed` (breaking) bumps the minor pre-1.0;
+   otherwise additive `Added` bumps the minor, and a `Fixed`-only release bumps the patch.
+4. Commit (`docs: release vX.Y.Z`), then annotated-tag `git tag -a vX.Y.Z -m "vX.Y.Z"` and push
+   `main` + the tag. Confirm the exact version with Seongjin before tagging.

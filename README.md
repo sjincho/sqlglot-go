@@ -32,9 +32,20 @@ targeted slice of the optimizer:
   round-trip is a goal and is tested; reading one dialect and writing another is not verified.
 - **Dialects beyond base / MySQL / Postgres** (upstream ships 30+).
 
-See [ROADMAP.md](./ROADMAP.md) for the remaining work and resolved-findings ledger, and
-[DEVIATIONS.md](./DEVIATIONS.md) for every place the port *intentionally* behaves differently from
-upstream sqlglot (headline: ASCII-only identifier case-folding, to match real engines).
+**Beyond upstream — opt-in, additive (default output unchanged):**
+- **Search-path table qualification** — `QualifyOpts.SearchPath` resolves an unqualified table
+  against an ordered schema list by proven existence (fail-closed).
+- **Top-level `UPDATE`/`DELETE`/`MERGE` scopes** — `TraverseScope`/`BuildScope` bind DML targets and
+  their `FROM`/`USING`/`JOIN` sources for analysis (fail-closed; upstream yields none).
+- **Qualify resolution report** — `QualifyOpts.ResolutionReport` surfaces each source's `SourceKind`
+  (Physical / CTE / Derived / Subquery / Unresolved) + identity.
+- **MySQL version/executable comments** — `mysql_version=<MYSQL_VERSION_ID>` activates `/*!… */`
+  bodies into the token stream; default-off strips them as upstream does.
+
+See [CHANGELOG.md](./CHANGELOG.md) for the per-version history, [ROADMAP.md](./ROADMAP.md) for the
+remaining work and resolved-findings ledger, and [DEVIATIONS.md](./DEVIATIONS.md) for every place the
+port *intentionally* behaves differently from upstream sqlglot (headline: ASCII-only identifier
+case-folding, to match real engines).
 
 ## What works today
 

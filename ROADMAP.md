@@ -201,6 +201,34 @@ lifecycle. No corpus or fidelity fixtures or floors were changed: the existing *
 corpus (base 955/955, MySQL 424/424, Postgres 468/468), including the preexisting
 `REPLACE INTO table SELECT id FROM table2 WHERE cnt > 100` row, remains the ratchet.
 
+## R1 / R3 / A1′ / R2 — opt-in analysis + tokenizer enablers — DONE (v0.5.0)
+
+**DONE (2026-07-12, main; released as v0.5.0.)** Four PRs of opt-in, additive enabler APIs for the
+downstream lineage/gating consumer — none changes default same-dialect output; each is in DEVIATIONS.md
+and (where it goes beyond upstream grammar) the Class-A ledger. Corpus/fidelity floors unchanged.
+
+- **R1 — search-path table qualification (PR #3).** `QualifyOpts.SearchPath []string` stamps an
+  unqualified table's `db` from the first schema in the path that _proves_ the table exists; fail-closed
+  (a flat/db-incapable schema never stamps), resolves a 2-part probe against a 3-level
+  `catalog.schema.table` schema, and leaves `catalog` to the caller. `QualifyTables` gained
+  `searchPath, schema.Schema` trailing args.
+- **R3 — top-level UPDATE/DELETE/MERGE scopes (PR #4).** A Go-only **analysis** traversal
+  (`TraverseScope`/`BuildScope`) yields a DML-root scope binding the target + `FROM`/`USING`/`JOIN`
+  sources + columns; complete-or-none (a malformed DML omits the root scope rather than emitting a
+  partial one). The optimizer/qualify/validate passes keep the upstream-faithful
+  `traverseScopeForOptimizer`, which omits these scopes — so no same-dialect drift. Security-sensitive:
+  analysis-only, fail-closed. DEVIATIONS §6.
+- **A1′ + V1/V2/A2 — MySQL version comments + tokenizer-sharing enablers (PR #6).** Opt-in
+  `mysql_version=<MYSQL_VERSION_ID>` activates `/*!… */` and gated `/*!NNNNN … */` bodies into the token
+  stream (default-off strips, DEVIATIONS §1.5). Plus `(*Dialect).IsReservedKeyword`, and documented
+  fail-closed contracts for `Tokenize` (errors, never truncates) and `Token.Start`/`End` (byte-exact
+  lexeme spans).
+- **R2 — Qualify resolution report (PR #7, closes #5).** `QualifyOpts.ResolutionReport` surfaces the
+  per-source `SourceKind` (Physical/CTE/Derived/Subquery/Unresolved) Qualify's scope pass already
+  computes, classified from the resolved source's dynamic type (never the node's `KindTable`).
+  `Unresolved` is the zero value (fail-closed); nil report is a strict no-op. Composes with R3: a DML
+  root classifies its target _and_ read-sources from the analysis traversal.
+
 ## Athena support (Presto/Trino/Hive parser chain), scoped to lineage — DONE
 
 **DONE (2026-07, main @ e428a54).** All 4 slices landed + merged, each `go test ./...` green with
