@@ -12,14 +12,16 @@ scope. This file is the quick contributor checklist.
 
 ## Build, test, lint
 
+Tasks are defined in `mise.toml` (run `mise tasks` to list):
+
 ```bash
-make check          # build + vet + gofmt-check + race tests (the pre-push gate)
+mise run check      # build + vet + gofmt-check + race tests (the pre-push gate)
 # or individually:
-go build ./...
-go test ./...
-go vet ./...
-gofmt -l .          # must print nothing
-golangci-lint run   # optional locally; CI runs it on new code
+mise run build      # go build ./...
+mise run test       # go test ./...
+mise run vet        # go vet ./...
+mise run fmt        # gofmt -w .   (fmt-check fails if anything needs formatting)
+mise run lint       # golangci-lint (optional locally; CI runs it on new code)
 ```
 
 `go test ./...` must be green before every push. A round-trip parity corpus (`corpus_test.go`) and an
@@ -53,7 +55,7 @@ changelog from them, so the format is required.
 
 Checklist before opening a PR:
 
-1. `make check` is green; `gofmt -l .` is empty.
+1. `mise run check` is green; `gofmt -l .` is empty.
 2. New behavior has tests; ported behavior reuses the upstream fixtures.
 3. Any intentional divergence is in `DEVIATIONS.md` with a rationale.
 4. The PR title is a Conventional Commit.
