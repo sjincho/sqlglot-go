@@ -47,7 +47,8 @@ jobs:
           fi
       - run: go vet ./...
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        # v7 of the action runs golangci-lint v2 (matches .golangci.yml version: "2").
+        uses: golangci/golangci-lint-action@v7
         with:
           version: latest
           # Only fail on issues introduced by the PR, so pre-existing findings in the
