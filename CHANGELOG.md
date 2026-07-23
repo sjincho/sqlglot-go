@@ -18,6 +18,13 @@ merged, tags the version and publishes the GitHub release. See
 [AGENTS.md § Releasing](./AGENTS.md#releasing). Entries for **v0.5.0 and earlier** were written by hand
 before release-please was adopted.
 
+## [0.15.2](https://github.com/ridi-oss/sqlglot-go/compare/v0.15.1...v0.15.2) (2026-07-23)
+
+
+### Bug Fixes
+
+* **parser:** resolve pg_catalog-qualified builtin type names to the builtin node ([#46](https://github.com/ridi-oss/sqlglot-go/issues/46)) ([dfba2e8](https://github.com/ridi-oss/sqlglot-go/commit/dfba2e830de1b5702bddef36323be21a52f26828))
+
 ## [0.15.1](https://github.com/ridi-oss/sqlglot-go/compare/v0.15.0...v0.15.1) (2026-07-23)
 
 
