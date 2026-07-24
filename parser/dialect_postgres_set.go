@@ -135,9 +135,9 @@ func (p *Parser) parseSetSessionCharacteristics() exp.Expression {
 	if !p.matchUnquotedTextSeq("AS") || !p.matchUnquotedTextSeq("TRANSACTION") {
 		return nil
 	}
-	// raiseUnmatched=false so a characteristic outside the modeled set (e.g. READ UNCOMMITTED — blocked
-	// by a typo in the shared characteristics table's `UNCOMITTED` entry) fails closed to a Command via
-	// the empty-list check, rather than raising a hard parse error.
+	// raiseUnmatched=false so a characteristic outside the modeled set (e.g. `READ UNCOMMITTED`, which
+	// the shared characteristics table's isolation-level entry misspells and so never matches) fails
+	// closed to a Command via the empty-list check, rather than raising a hard parse error.
 	characteristics := p.parseCsv(func() exp.Expression {
 		return p.parseVarFromOptions(pgTransactionCharacteristics, false)
 	})
